@@ -1,6 +1,4 @@
-# Setup Guide: Docker Swarm, Caddy and Portainer on Google Cloud
-
-Author: shengyu · Last updated: 2026-10-27
+# Docker Swarm, Caddy and Portainer on Google Cloud
 
 This guide builds the environment from nothing: three Google Cloud (GCP) VMs, a Docker Swarm, the Users and Tasks stacks, a Caddy reverse proxy with HTTPS, and a Portainer dashboard reached over an SSH tunnel. For the reasoning behind each choice see the design and motivation document.
 
