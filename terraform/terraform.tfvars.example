@@ -1,0 +1,7 @@
+project_id = "your-gcp-project-id"
+
+# Optional overrides
+# region            = "asia-southeast1"
+# zone              = "asia-southeast1-b"
+# machine_type      = "e2-medium"
+# ssh_source_ranges = ["203.0.113.10/32"]

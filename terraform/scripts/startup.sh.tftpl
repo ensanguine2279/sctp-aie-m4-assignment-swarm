@@ -1,0 +1,57 @@
+#!/bin/bash
+# Runs as root on every boot. Idempotent: it installs Docker once and joins the swarm once.
+set -euo pipefail
+exec > >(tee -a /var/log/swarm-bootstrap.log) 2>&1
+
+MD="http://metadata.google.internal/computeMetadata/v1"
+H="Metadata-Flavor: Google"
+
+# ---- Docker -----------------------------------------------------------------
+if ! command -v docker >/dev/null 2>&1; then
+  apt-get update -y
+  apt-get install -y curl jq ca-certificates
+  curl -fsSL https://get.docker.com | sh
+fi
+systemctl enable --now docker
+command -v jq >/dev/null 2>&1 || apt-get install -y jq
+
+# ---- Already in a swarm? Nothing more to do ---------------------------------
+STATE=$(docker info --format '{{ .Swarm.LocalNodeState }}')
+if [ "$STATE" = "active" ]; then
+  echo "Already part of a swarm."
+  exit 0
+fi
+
+MY_IP=$(curl -fsS -H "$H" "$MD/instance/network-interfaces/0/ip")
+
+%{ if is_leader ~}
+# ---- Leader: create the swarm and publish the manager join token ------------
+docker swarm init --advertise-addr "${leader_ip}"
+
+# Label for the databases (stack files pin them with node.labels.db == true).
+docker node update --label-add db=true "$(hostname)"
+
+# Guest attributes can be written by the VM itself, with no extra IAM.
+TOKEN=$(docker swarm join-token -q manager)
+curl -fsS -X PUT -H "$H" --data "$TOKEN" \
+  "$MD/instance/guest-attributes/swarm/manager-token"
+echo "Swarm initialised and manager token published."
+%{ else ~}
+# ---- Other nodes: wait for the leader's token, then join as a manager -------
+ACCESS_TOKEN=""
+for i in $(seq 1 90); do
+  ACCESS_TOKEN=$(curl -fsS -H "$H" "$MD/instance/service-accounts/default/token" | jq -r .access_token)
+  TOKEN=$(curl -fsS -H "Authorization: Bearer $ACCESS_TOKEN" \
+    "https://compute.googleapis.com/compute/v1/projects/${project_id}/zones/${zone}/instances/${leader_name}/getGuestAttributes?queryPath=swarm/manager-token" \
+    | jq -r '.queryValue.items[0].value // empty' || true)
+  if [ -n "$TOKEN" ]; then
+    docker swarm join --token "$TOKEN" --advertise-addr "$MY_IP" "${leader_ip}:2377"
+    echo "Joined the swarm as a manager."
+    exit 0
+  fi
+  echo "Leader token not ready yet ($i/90)."
+  sleep 10
+done
+echo "Gave up waiting for the leader's join token." >&2
+exit 1
+%{ endif ~}

@@ -1,4 +1,6 @@
-# Docker Swarm, Caddy and Portainer on Google Cloud
+# Setup Guide: Docker Swarm, Caddy and Portainer on Google Cloud
+
+Author: shengyu · Last updated: 2026-10-27
 
 This guide builds the environment from nothing: three Google Cloud (GCP) VMs, a Docker Swarm, the Users and Tasks stacks, a Caddy reverse proxy with HTTPS, and a Portainer dashboard reached over an SSH tunnel. For the reasoning behind each choice see the design and motivation document.
 
@@ -31,6 +33,33 @@ The order matters. The proxy joins the Users and Tasks overlay networks, so thos
 - Commands marked **local** run in a terminal with the `gcloud` CLI (your computer or Cloud Shell). Commands marked **swarm-N** run over SSH on that VM.
 - `sudo` is used for every `docker` command so you do not need to add yourself to the `docker` group.
 - Passwords, JWT keys and env files never go into Git.
+
+### 1.3 Option: create the infrastructure with Terraform
+
+Sections 3 to 5 (VMs, static IP, firewall, Docker, swarm) can be done by Terraform instead of by hand. The Terraform project creates the three VMs, the static IP, the firewall rules and the service account, installs Docker through a startup script, and forms the swarm of three managers by itself, including the `db=true` label on `swarm-1`.
+
+| Guide section | Manual (this guide) | With Terraform |
+|---|---|---|
+| 3. VMs, static IP, firewall | `gcloud` commands | Created by `terraform apply` |
+| 4. Install Docker | SSH to each node | Done by the startup script |
+| 5. Create the swarm, label `swarm-1` | `docker swarm init` and `join` | Done by the startup script |
+| 6. Env files and JWT keys | By hand | By hand (kept out of Terraform state on purpose) |
+| 7. Users and Tasks stacks | By hand or CI | By hand or CI |
+| 8.1 DNS record | By hand | By hand (use the `swarm1_public_ip` output) |
+| 8. Caddy, 9. Portainer | Stack files | Stack files |
+
+```bash
+gcloud auth application-default login
+cp terraform.tfvars.example terraform.tfvars      # set project_id
+terraform init
+terraform apply
+```
+
+After `apply`, allow a few minutes for the nodes to join, check with `sudo docker node ls` on `swarm-1`, then continue from section 6. Remove the infrastructure later with `terraform destroy`.
+
+Terraform project and its full instructions (variables, how the swarm forms, limits): [Terraform README](terraform/README-terraform.md).
+
+Use the manual path to learn what each step does, and the Terraform path to rebuild the environment quickly and repeatably.
 
 ## 2. Prerequisites
 
@@ -77,8 +106,6 @@ done
 ```
 
 `e2-medium` gives 2 vCPU and 4 GB, which is enough for the JVM replicas (512 MB limit each), two Postgres containers (384 MB limit each) and the proxy. The `swarm` network tag is how firewall rules find these VMs.
-
-![](assets/images/swarm-vms.jpg)
 
 ### 3.3 Firewall rules
 
@@ -471,8 +498,6 @@ gcloud compute ssh swarm-3 --zone=asia-southeast1-b -- -L 9443:localhost:9443
 ```
 
 Leave that terminal open and browse to `https://localhost:9443`. Accept the self-signed certificate warning; the connection to the dashboard is encrypted and only reachable through the tunnel.
-
-![Portainer Dashboard](assets/images/swarm-portainer.jpg)
 
 ### 9.4 First run
 
