@@ -1,0 +1,18 @@
+sctp-aie-m4-apigw.work.gd {
+	# Never expose Actuator through the public proxy (the container health checks use localhost inside each container).
+	# This must be a handle block placed BEFORE the others: handle blocks run in the order written and the first match wins.
+	@actuator path /actuator /actuator/*
+	handle @actuator {
+		respond 404
+	}
+
+	# Tasks API
+	handle /api/tasks* {
+		reverse_proxy task-service:8077
+	}
+
+	# Everything else (login, /api/users...) goes to the users API
+	handle {
+		reverse_proxy user-service:8022
+	}
+}

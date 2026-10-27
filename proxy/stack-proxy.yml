@@ -1,0 +1,51 @@
+version: "3.8"
+
+# Deploy AFTER the users and tasks stacks exist (it joins their overlay networks):
+#   sudo docker stack deploy -c stack-proxy.yml proxy
+
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host          # host mode keeps the real client IP and binds directly on swarm-1
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+    configs:
+      - source: caddyfile_v3
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data    # certificates and ACME account live here
+      - caddy_config:/config
+    networks:
+      - users
+      - tasks
+    deploy:
+      replicas: 1
+      placement:
+        # Certificates are stored on this node's disk, so keep the proxy on swarm-1,
+        # the node that owns the static IP the DNS name points at.
+        constraints: [node.hostname == swarm-1]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+configs:
+  caddyfile_v3:
+    file: ./Caddyfile
+
+networks:
+  users:
+    external: true
+    name: users_users-network
+  tasks:
+    external: true
+    name: tasks_tasks-network
+
+volumes:
+  caddy_data:
+  caddy_config:
